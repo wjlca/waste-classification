@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>智能垃圾分类系统</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
+    <style>
+        body {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: #f5f5f5;
+        }
+        .upload-box {
+            border: 2px dashed #3498db;
+            border-radius: 10px;
+            padding: 30px;
+            text-align: center;
+            margin: 20px 0;
+            background: white;
+        }
+        #preview {
+            max-width: 300px;
+            max-height: 300px;
+            margin: 20px auto;
+            display: block;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .result-card {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            margin-top: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .progress-bar {
+            height: 20px;
+            background: #ecf0f1;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background: #2ecc71;
+            transition: width 0.3s ease;
+        }
+        .highlight {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #2980b9;
+        }
+        #loading {
+            display: none;
+            color: #7f8c8d;
+            margin: 15px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🗑️ 智能垃圾分类系统</h1>
+    
+    <div class="upload-box">
+        <input type="file" id="upload" accept="image/*" hidden>
+        <button onclick="document.getElementById('upload').click()">上传图片</button>
+        <p>或拖拽图片到此区域</p>
+    </div>
+
+    <img id="preview">
+    <div id="loading">模型加载中...</div>
+
+    <div class="result-card">
+        <h3>分类结果</h3>
+        <div id="results"></div>
+    </div>
+
+    <script>
+        // 配置参数（根据你的模型调整）
+        const MODEL_URL = 'https://cdn.jsdelivr.net/gh/wjlca/waste-classification/model/model.json';
+        const LABELS = [
+            "cardboard", 
+            "food organics",
+            "glass",
+            "metal",
+            "miscellaneous trash",
+            "paper",
+            "plastic",
+            "textile trash",
+            "vegetation"
+        ];
+        const INPUT_SIZE = 224; // 模型输入尺寸
+
+        let model;
+
+        // 初始化模型加载
+        async function init() {
+            showLoading(true);
+            try {
+                model = await tf.loadLayersModel(MODEL_URL);
+                showLoading(false);
+                document.getElementById('upload').disabled = false;
+            } catch (error) {
+                showLoading(false);
+                alert(`模型加载失败: ${error.message}`);
+            }
+        }
+
+        // 处理文件上传
+        document.getElementById('upload').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const img = document.getElementById('preview');
+            img.src = URL.createObjectURL(file);
+            
+            showLoading(true);
+            try {
+                await new Promise(resolve => img.onload = resolve);
+                const tensor = preprocessImage(img);
+                const predictions = await model.predict(tensor).data();
+                showResults(predictions);
+            } catch (error) {
+                alert(`分类失败: ${error.message}`);
+            }
+            showLoading(false);
+        });
+
+        // 图片预处理
+        function preprocessImage(img) {
+            return tf.tidy(() => {
+                return tf.browser.fromPixels(img)
+                    .resizeNearestNeighbor([INPUT_SIZE, INPUT_SIZE])
+                    .toFloat()
+                    .div(255.0)
+                    .expandDims();
+            });
+        }
+
+        // 显示分类结果
+        function showResults(predictions) {
+            const results = LABELS.map((label, index) => ({
+                label,
+                probability: predictions[index]
+            })).sort((a, b) => b.probability - a.probability);
+
+            let html = '';
+            results.forEach((item, index) => {
+                const isHighlight = index === 0;
+                html += `
+                    <div class="${isHighlight ? 'highlight' : ''}">
+                        ${item.label}
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: ${item.probability * 100}%"></div>
+                        </div>
+                        ${(item.probability * 100).toFixed(1)}%
+                    </div>
+                `;
+            });
+
+            document.getElementById('results').innerHTML = html;
+        }
+
+        // 显示/隐藏加载状态
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        }
+
+        // 初始化
+        init();
+
+        // 拖拽上传功能
+        const dropZone = document.querySelector('.upload-box');
+        dropZone.ondragover = e => e.preventDefault();
+        dropZone.ondrop = e => {
+            e.preventDefault();
+            const file = e.dataTransfer.files[0];
+            if (file && file.type.startsWith('image/')) {
+                document.getElementById('upload').files = e.dataTransfer.files;
+                document.getElementById('upload').dispatchEvent(new Event('change'));
+            }
+        };
+    </script>
+</body>
+</html>
